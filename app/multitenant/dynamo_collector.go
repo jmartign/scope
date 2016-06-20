@@ -399,17 +399,13 @@ func (c *dynamoDBCollector) getReports(userid string, row int64, start, end time
 
 	if c.memcache != nil {
 		var memcachedReports []report.Report
-		memcachedReports, missing, err = c.fetchFromMemcache(missing)
+		memcachedReports, newMissing, err := c.fetchFromMemcache(missing)
 		memcacheHits.Add(float64(len(memcachedReports)))
-		memcacheMiss.Add(float64(len(missing)))
-		if err != nil {
-			// REVIEWER: jml is unclear whether we should abort in this case or
-			// just carry on. Aborting is easier to reason about for us, but
-			// suppressing is probably OK since failure just means we fetch
-			// from S3.
-			return nil, err
+		memcacheMiss.Add(float64(len(newMissing)))
+		if err == nil {
+			cachedReports = append(cachedReports, memcachedReports...)
+			missing = newMissing
 		}
-		cachedReports = append(cachedReports, memcachedReports...)
 	}
 	if len(missing) == 0 {
 		return cachedReports, nil
@@ -448,7 +444,7 @@ func (c *dynamoDBCollector) fetchFromMemcache(reportKeys []string) ([]report.Rep
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, reportKeys, err
 	}
 
 	// Decode all the reports in parallel.
