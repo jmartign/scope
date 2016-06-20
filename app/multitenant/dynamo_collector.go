@@ -82,17 +82,11 @@ var (
 		Help:      "Number of NATS requests.",
 	}, []string{"method", "status_code"})
 
-	memcacheHits = prometheus.NewCounter(prometheus.CounterOpts{
+	memcacheCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "scope",
-		Name:      "memcache_hits",
+		Name:      "memcache",
 		Help:      "Reports that missed our in-memory cache but went to our memcache",
-	})
-
-	memcacheMiss = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "scope",
-		Name:      "memcache_miss",
-		Help:      "Reports that missed both our in-memory cache and our memcache",
-	})
+	}, []string{"result"})
 
 	memcacheRequestDuration = prometheus.NewSummaryVec(prometheus.SummaryOpts{
 		Namespace: "scope",
@@ -110,8 +104,7 @@ func init() {
 	prometheus.MustRegister(reportSize)
 	prometheus.MustRegister(s3RequestDuration)
 	prometheus.MustRegister(natsRequests)
-	prometheus.MustRegister(memcacheHits)
-	prometheus.MustRegister(memcacheMiss)
+	prometheus.MustRegister(memcacheCounter)
 	prometheus.MustRegister(memcacheRequestDuration)
 }
 
@@ -400,8 +393,8 @@ func (c *dynamoDBCollector) getReports(userid string, row int64, start, end time
 	if c.memcache != nil {
 		var memcachedReports []report.Report
 		memcachedReports, newMissing, err := c.fetchFromMemcache(missing)
-		memcacheHits.Add(float64(len(memcachedReports)))
-		memcacheMiss.Add(float64(len(newMissing)))
+		memcacheCounter.WithLabelValues("hit").Add(float64(len(memcachedReports)))
+		memcacheCounter.WithLabelValues("miss").Add(float64(len(newMissing)))
 		if err == nil {
 			cachedReports = append(cachedReports, memcachedReports...)
 			missing = newMissing
