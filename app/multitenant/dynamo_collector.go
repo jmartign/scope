@@ -35,6 +35,8 @@ const (
 	memcacheExpiration     = 15 // seconds
 	memcacheUpdateInterval = 1 * time.Minute
 	natsTimeout            = 10 * time.Second
+	hitLabel               = "hit"
+	missLabel              = "miss"
 )
 
 var (
@@ -43,16 +45,11 @@ var (
 		Name:      "dynamo_request_duration_nanoseconds",
 		Help:      "Time spent doing DynamoDB requests.",
 	}, []string{"method", "status_code"})
-	dynamoCacheHits = prometheus.NewCounter(prometheus.CounterOpts{
+	dynamoCacheCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "scope",
-		Name:      "dynamo_cache_hits",
-		Help:      "Reports fetches that hit local cache.",
-	})
-	dynamoCacheMiss = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "scope",
-		Name:      "dynamo_cache_miss",
-		Help:      "Reports fetches that miss local cache.",
-	})
+		Name:      "dynamo_cache",
+		Help:      "Reports fetches that hit in-memory cache.",
+	}, []string{"result"})
 	dynamoConsumedCapacity = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "scope",
 		Name:      "dynamo_consumed_capacity",
@@ -97,8 +94,7 @@ var (
 
 func init() {
 	prometheus.MustRegister(dynamoRequestDuration)
-	prometheus.MustRegister(dynamoCacheHits)
-	prometheus.MustRegister(dynamoCacheMiss)
+	prometheus.MustRegister(dynamoCacheCounter)
 	prometheus.MustRegister(dynamoConsumedCapacity)
 	prometheus.MustRegister(dynamoValueSize)
 	prometheus.MustRegister(reportSize)
@@ -384,8 +380,8 @@ func (c *dynamoDBCollector) getReports(userid string, row int64, start, end time
 	// and a list of providers: in-memory cache, memcache, dynamo. Possibly
 	// also an "always everything missing" implementation to simplify logic.
 	cachedReports, missing := c.getCached(reportKeys)
-	dynamoCacheHits.Add(float64(len(cachedReports)))
-	dynamoCacheMiss.Add(float64(len(missing)))
+	dynamoCacheCounter.WithLabelValues(hitLabel).Add(float64(len(cachedReports)))
+	dynamoCacheCounter.WithLabelValues(missLabel).Add(float64(len(missing)))
 	if len(missing) == 0 {
 		return cachedReports, nil
 	}
@@ -393,8 +389,8 @@ func (c *dynamoDBCollector) getReports(userid string, row int64, start, end time
 	if c.memcache != nil {
 		var memcachedReports []report.Report
 		memcachedReports, newMissing, err := c.fetchFromMemcache(missing)
-		memcacheCounter.WithLabelValues("hit").Add(float64(len(memcachedReports)))
-		memcacheCounter.WithLabelValues("miss").Add(float64(len(newMissing)))
+		memcacheCounter.WithLabelValues(hitLabel).Add(float64(len(memcachedReports)))
+		memcacheCounter.WithLabelValues(missLabel).Add(float64(len(newMissing)))
 		if err == nil {
 			cachedReports = append(cachedReports, memcachedReports...)
 			missing = newMissing
